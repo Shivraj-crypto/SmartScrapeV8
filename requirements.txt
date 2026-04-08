@@ -1,0 +1,10 @@
+playwright>=1.53.0
+beautifulsoup4>=4.12.3
+lxml>=5.2.2
+openai>=1.76.0
+numpy>=1.26.4
+python-dotenv>=1.0.1
+pydantic>=2.7.0
+
+# Optional for Step 4 (RAG indexing) if your platform supports FAISS wheels.
+# faiss-cpu>=1.8.0

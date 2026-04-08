@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartscrapev8"
+version = "0.1.0"
+description = "MVP AI-powered web scraping and QA pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "SmartScrape Team" }
+]
+dependencies = [
+  "playwright>=1.53.0",
+  "beautifulsoup4>=4.12.3",
+  "lxml>=5.2.2",
+  "openai>=1.76.0",
+  "numpy>=1.26.4",
+  "python-dotenv>=1.0.1",
+  "pydantic>=2.7.0"
+]
+
+[project.optional-dependencies]
+rag = [
+  "faiss-cpu>=1.8.0"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pyright]
+include = ["src", "main.py", "scripts"]
+extraPaths = ["src"]
