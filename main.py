@@ -23,7 +23,7 @@ from smart_scrape.scraper.playwright_client import scrape_page
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fetch a URL with Playwright and return cleaned HTML."
+        description="Fetch a URL with Scrapling and return cleaned HTML."
     )
     parser.add_argument(
         "url",

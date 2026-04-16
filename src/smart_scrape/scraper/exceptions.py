@@ -7,7 +7,7 @@ class InvalidURLError(ScraperError):
 
 
 class NavigationError(ScraperError):
-    """Raised when Playwright fails to load a page in time."""
+    """Raised when the scraping engine fails to load a page in time."""
 
 
 class EmptyContentError(ScraperError):

@@ -5,7 +5,7 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 ## What is implemented now
 
 - Step 1: Python project setup and module structure
-- Step 2: Async Playwright scraper that fetches a page and returns cleaned HTML
+- Step 2: Scrapling-based scraper that fetches a page and returns cleaned HTML
 
 ## Quick start
 
@@ -14,7 +14,7 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 
    pip install -r requirements.txt
 
-3. Install Playwright browser binaries:
+3. Install Scrapling browser/runtime support:
 
    python scripts/setup_env.py
 

@@ -3,11 +3,7 @@ from __future__ import annotations
 from time import perf_counter
 from urllib.parse import urlparse
 
-from playwright.async_api import Browser
-from playwright.async_api import BrowserContext
-from playwright.async_api import Error as PlaywrightError
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from playwright.async_api import async_playwright
+from scrapling.fetchers import DynamicFetcher
 
 from smart_scrape.config import Settings
 from smart_scrape.scraper.exceptions import EmptyContentError
@@ -37,78 +33,50 @@ def normalize_url(url: str) -> str:
     return candidate
 
 
-async def _safe_close_context(context: BrowserContext | None) -> None:
-    if context is None:
-        return
-    try:
-        await context.close()
-    except PlaywrightError:
-        pass
-
-
-async def _safe_close_browser(browser: Browser | None) -> None:
-    if browser is None:
-        return
-    try:
-        await browser.close()
-    except PlaywrightError:
-        pass
+def _decode_body(body: bytes, encoding: str | None) -> str:
+    if not body:
+        return ""
+    return body.decode(encoding or "utf-8", errors="replace")
 
 
 async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResult:
     current_settings = settings or Settings.from_env()
     normalized_url = normalize_url(url)
 
-    browser: Browser | None = None
-    context: BrowserContext | None = None
-
     started_at = perf_counter()
 
     try:
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=current_settings.headless)
-            context = await browser.new_context()
-            page = await context.new_page()
+        response = await DynamicFetcher.async_fetch(
+            normalized_url,
+            headless=current_settings.headless,
+            network_idle=current_settings.wait_for_network_idle,
+            timeout=current_settings.navigation_timeout_ms,
+        )
 
-            # Use explicit timeouts to keep failures deterministic.
-            page.set_default_navigation_timeout(current_settings.navigation_timeout_ms)
-            page.set_default_timeout(current_settings.navigation_timeout_ms)
-
-            response = await page.goto(normalized_url, wait_until="domcontentloaded")
-
-            if current_settings.wait_for_network_idle:
-                await page.wait_for_load_state(
-                    "networkidle",
-                    timeout=current_settings.navigation_timeout_ms,
-                )
-
-            raw_html = await page.content()
-            cleaned_html = clean_html(raw_html)
-            if not cleaned_html:
-                raise EmptyContentError(
-                    f"No usable content was extracted from {normalized_url}."
-                )
-
-            elapsed_ms = int((perf_counter() - started_at) * 1000)
-
-            return ScrapeResult(
-                requested_url=url,
-                final_url=page.url,
-                title=await page.title(),
-                raw_html=raw_html,
-                cleaned_html=cleaned_html,
-                status_code=response.status if response is not None else None,
-                elapsed_ms=elapsed_ms,
+        raw_html = _decode_body(response.body, getattr(response, "encoding", None))
+        cleaned_html = clean_html(raw_html)
+        if not cleaned_html:
+            raise EmptyContentError(
+                f"No usable content was extracted from {normalized_url}."
             )
-    except PlaywrightTimeoutError as exc:
-        raise NavigationError(
-            f"Timed out while loading {normalized_url}. "
-            "Try increasing SCRAPE_NAVIGATION_TIMEOUT_MS."
-        ) from exc
-    except PlaywrightError as exc:
-        raise ScraperError(
-            f"Playwright failed while scraping {normalized_url}: {exc}"
-        ) from exc
-    finally:
-        await _safe_close_context(context)
-        await _safe_close_browser(browser)
+
+        elapsed_ms = int((perf_counter() - started_at) * 1000)
+
+        return ScrapeResult(
+            requested_url=url,
+            final_url=response.url,
+            title=response.css("title::text").get(""),
+            raw_html=raw_html,
+            cleaned_html=cleaned_html,
+            status_code=response.status,
+            elapsed_ms=elapsed_ms,
+        )
+    except Exception as exc:
+        message = str(exc).lower()
+        error_name = exc.__class__.__name__.lower()
+        if "timeout" in error_name or "timed out" in message or "timeout" in message:
+            raise NavigationError(
+                f"Timed out while loading {normalized_url}. "
+                "Try increasing SCRAPE_NAVIGATION_TIMEOUT_MS."
+            ) from exc
+        raise ScraperError(f"Scrapling failed while scraping {normalized_url}: {exc}") from exc
