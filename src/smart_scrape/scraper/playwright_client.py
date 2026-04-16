@@ -11,6 +11,7 @@ from smart_scrape.scraper.exceptions import InvalidURLError
 from smart_scrape.scraper.exceptions import NavigationError
 from smart_scrape.scraper.exceptions import ScraperError
 from smart_scrape.scraper.extractor import clean_html
+from smart_scrape.scraper.extractor import html_to_text
 from smart_scrape.scraper.models import ScrapeResult
 
 
@@ -59,6 +60,7 @@ async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResul
             raise EmptyContentError(
                 f"No usable content was extracted from {normalized_url}."
             )
+        cleaned_text = html_to_text(cleaned_html)
 
         elapsed_ms = int((perf_counter() - started_at) * 1000)
 
@@ -68,6 +70,7 @@ async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResul
             title=response.css("title::text").get(""),
             raw_html=raw_html,
             cleaned_html=cleaned_html,
+            cleaned_text=cleaned_text,
             status_code=response.status,
             elapsed_ms=elapsed_ms,
         )

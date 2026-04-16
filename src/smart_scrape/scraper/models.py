@@ -10,5 +10,6 @@ class ScrapeResult:
     title: str
     raw_html: str
     cleaned_html: str
+    cleaned_text: str
     status_code: int | None
     elapsed_ms: int

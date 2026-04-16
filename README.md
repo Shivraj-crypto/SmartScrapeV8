@@ -5,7 +5,7 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 ## What is implemented now
 
 - Step 1: Python project setup and module structure
-- Step 2: Scrapling-based scraper that fetches a page and returns cleaned HTML
+- Step 2: Scrapling-based scraper that fetches a page and returns cleaned HTML + readable text
 
 ## Quick start
 
@@ -20,7 +20,7 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 
 4. Run a scrape:
 
-   python main.py https://apple.com
+   python main.py https://apple.com --save-html output/apple.html --save-text output/apple.txt
 
 ## Notes
 

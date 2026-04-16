@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html2text
 from bs4 import BeautifulSoup
 from bs4 import Comment
 from bs4.element import Tag
@@ -64,3 +65,17 @@ def clean_html(html_content: str) -> str:
 
     root = soup.body if soup.body is not None else soup
     return root.prettify().strip()
+
+
+def html_to_text(cleaned_html: str) -> str:
+    if not cleaned_html or not cleaned_html.strip():
+        return ""
+
+    converter = html2text.HTML2Text()
+    converter.body_width = 0
+    converter.ignore_links = False
+    converter.ignore_images = True
+
+    markdown_text = converter.handle(cleaned_html)
+    normalized_lines = [line.rstrip() for line in markdown_text.splitlines()]
+    return "\n".join(normalized_lines).strip()
