@@ -23,6 +23,8 @@ class Settings:
     navigation_timeout_ms: int = 45000
     wait_for_network_idle: bool = True
     headless: bool = True
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -40,6 +42,10 @@ class Settings:
         if timeout_ms <= 0:
             timeout_ms = cls.navigation_timeout_ms
 
+        gemini_model = os.getenv("GEMINI_MODEL", cls.gemini_model).strip()
+        if not gemini_model:
+            gemini_model = cls.gemini_model
+
         return cls(
             navigation_timeout_ms=timeout_ms,
             wait_for_network_idle=_parse_bool(
@@ -50,4 +56,6 @@ class Settings:
                 os.getenv("SCRAPE_HEADLESS"),
                 default=True,
             ),
+            gemini_api_key=os.getenv("GEMINI_API_KEY"),
+            gemini_model=gemini_model,
         )

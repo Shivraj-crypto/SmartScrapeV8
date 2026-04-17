@@ -6,6 +6,7 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 
 - Step 1: Python project setup and module structure
 - Step 2: Scrapling-based scraper that fetches a page and returns cleaned HTML + readable text
+- Gemini integration: upload a `.txt` file, extract only deals/coupons, and save output to `.txt`
 
 ## Quick start
 
@@ -18,11 +19,20 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 
    python scripts/setup_env.py
 
-4. Run a scrape:
+4. Set your Gemini API key (PowerShell):
+
+   $env:GEMINI_API_KEY="your_api_key_here"
+
+5. Run a scrape:
 
    python main.py https://apple.com --save-html output/apple.html --save-text output/apple.txt
 
+6. Run deals/coupons extraction from a text file:
+
+   python main.py --input-text-file sample_input.txt --save-deals output/deals.txt
+
 ## Notes
 
-- The current implementation focuses on scraping only.
-- Processing, chunking, embeddings, retrieval, and final QA will be added next.
+- Gemini extraction uses a strict system prompt that returns only deals/coupons.
+- Optional model override: `--gemini-model gemini-2.5-flash`
+- If no deals are found, Gemini is instructed to return `NO_DEALS_FOUND`.
