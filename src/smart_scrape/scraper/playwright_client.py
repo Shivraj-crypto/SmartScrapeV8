@@ -40,6 +40,23 @@ def _decode_body(body: bytes, encoding: str | None) -> str:
     return body.decode(encoding or "utf-8", errors="replace")
 
 
+def _extract_title(response: object) -> str:
+    selector = getattr(response, "css", None)
+    if not callable(selector):
+        return ""
+
+    title_selection = selector("title::text")
+    if title_selection is None:
+        return ""
+
+    getter = getattr(title_selection, "get", None)
+    if not callable(getter):
+        return ""
+
+    title = getter("")
+    return title if isinstance(title, str) else ""
+
+
 async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResult:
     current_settings = settings or Settings.from_env()
     normalized_url = normalize_url(url)
@@ -66,15 +83,17 @@ async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResul
 
         return ScrapeResult(
             requested_url=url,
-            final_url=response.url,
-            title=response.css("title::text").get(""),
+            final_url=getattr(response, "url", normalized_url),
+            title=_extract_title(response),
             raw_html=raw_html,
             cleaned_html=cleaned_html,
             cleaned_text=cleaned_text,
-            status_code=response.status,
+            status_code=getattr(response, "status", None),
             elapsed_ms=elapsed_ms,
         )
     except Exception as exc:
+        if isinstance(exc, EmptyContentError):
+            raise
         message = str(exc).lower()
         error_name = exc.__class__.__name__.lower()
         if "timeout" in error_name or "timed out" in message or "timeout" in message:

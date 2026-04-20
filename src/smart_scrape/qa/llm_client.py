@@ -3,11 +3,6 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-try:
-    genai = importlib.import_module("google.generativeai")
-except ImportError:  # pragma: no cover - handled at runtime.
-    genai = None
-
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
@@ -25,6 +20,10 @@ Output requirements:
 """
 
 DEALS_USER_PROMPT = "Extract only deals and coupons from the uploaded file."
+DEALS_TEXT_USER_PROMPT_PREFIX = (
+    "Extract only deals and coupons from the text below. "
+    "Ignore headers, footers, navigation, and unrelated site chrome.\n\n"
+)
 
 
 class LLMClientError(Exception):
@@ -41,6 +40,15 @@ class GeminiConfigurationError(LLMClientError):
 
 class GeminiResponseError(LLMClientError):
     """Raised when Gemini returns an unusable response."""
+
+
+def _load_genai_module() -> object:
+    try:
+        return importlib.import_module("google.generativeai")
+    except ImportError as exc:  # pragma: no cover - handled at runtime.
+        raise MissingGeminiDependencyError(
+            "google-generativeai is not installed. Add it to your environment first."
+        ) from exc
 
 
 def _extract_response_text(response: object) -> str:
@@ -70,10 +78,7 @@ def extract_deals_and_coupons_from_file(
     model_name: str = DEFAULT_GEMINI_MODEL,
 ) -> str:
     """Upload a .txt file to Gemini and save deals/coupons-only output to disk."""
-    if genai is None:
-        raise MissingGeminiDependencyError(
-            "google-generativeai is not installed. Add it to your environment first."
-        )
+    genai = _load_genai_module()
 
     normalized_api_key = api_key.strip()
     if not normalized_api_key:
@@ -105,5 +110,42 @@ def extract_deals_and_coupons_from_file(
     output_path = output_text_file.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(response_text + "\n", encoding="utf-8")
+
+    return response_text
+
+
+def extract_deals_and_coupons_from_text(
+    text: str,
+    api_key: str,
+    model_name: str = DEFAULT_GEMINI_MODEL,
+) -> str:
+    """Send plain text to Gemini and return deals/coupons-only output."""
+    genai = _load_genai_module()
+
+    normalized_api_key = api_key.strip()
+    if not normalized_api_key:
+        raise GeminiConfigurationError(
+            "Missing GEMINI_API_KEY. Set it in your environment or .env file."
+        )
+
+    normalized_text = text.strip()
+    if not normalized_text:
+        raise GeminiConfigurationError("Cannot send empty text to Gemini.")
+
+    genai.configure(api_key=normalized_api_key)
+    model = genai.GenerativeModel(
+        model_name=model_name,
+        system_instruction=DEALS_SYSTEM_PROMPT,
+    )
+    response = model.generate_content(
+        DEALS_TEXT_USER_PROMPT_PREFIX + normalized_text
+    )
+
+    response_text = (getattr(response, "text", "") or "").strip()
+    if not response_text:
+        response_text = _extract_response_text(response)
+
+    if not response_text:
+        raise GeminiResponseError("Gemini returned an empty response.")
 
     return response_text

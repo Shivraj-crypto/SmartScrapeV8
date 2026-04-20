@@ -12,8 +12,11 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from smart_scrape.config import Settings
+from smart_scrape.processor import ExtractionReport
+from smart_scrape.processor import extract_deal_candidates
 from smart_scrape.qa.llm_client import LLMClientError
 from smart_scrape.qa.llm_client import extract_deals_and_coupons_from_file
+from smart_scrape.qa.llm_client import extract_deals_and_coupons_from_text
 from smart_scrape.scraper.exceptions import (
     EmptyContentError,
     InvalidURLError,
@@ -55,13 +58,22 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--save-deals",
-        default="output/deals_and_coupons.txt",
-        help="File path to write Gemini deals/coupons response text.",
+        default=None,
+        help="Optional file path to write extracted deals/coupons output.",
     )
     parser.add_argument(
         "--gemini-model",
         default=None,
         help="Optional Gemini model override; defaults to GEMINI_MODEL.",
+    )
+    parser.add_argument(
+        "--llm-fallback-threshold",
+        type=float,
+        default=0.6,
+        help=(
+            "Use Gemini only when heuristic extraction confidence is below this "
+            "threshold. Range: 0.0 to 1.0."
+        ),
     )
     return parser.parse_args()
 
@@ -70,9 +82,19 @@ async def run(
     url: str,
     save_html: str | None,
     save_text: str | None,
+    save_deals: str | None,
+    gemini_model: str | None,
+    llm_fallback_threshold: float,
     settings: Settings,
 ) -> int:
     result = await scrape_page(url=url, settings=settings)
+    extraction_report = analyze_scraped_text(
+        cleaned_text=result.cleaned_text,
+        cleaned_html=result.cleaned_html,
+        settings=settings,
+        gemini_model=gemini_model,
+        llm_fallback_threshold=llm_fallback_threshold,
+    )
 
     print(f"Requested URL: {result.requested_url}")
     print(f"Final URL: {result.final_url}")
@@ -84,6 +106,24 @@ async def run(
     print(f"Cleaned HTML size: {len(result.cleaned_html)} characters")
     print(f"Readable text size: {len(result.cleaned_text)} characters")
     print(f"Elapsed: {result.elapsed_ms} ms")
+    print(f"Heuristic confidence: {extraction_report.overall_confidence:.2f}")
+    print(
+        "LLM fallback used: "
+        f"{'yes' if extraction_report.used_llm_fallback else 'no'}"
+    )
+    if extraction_report.fallback_error:
+        print(f"LLM fallback error: {extraction_report.fallback_error}")
+
+    if extraction_report.candidates:
+        print("Heuristic candidates:")
+        for candidate in extraction_report.candidates[:10]:
+            print(f"- {candidate.to_output_line()}")
+    elif not extraction_report.used_llm_fallback:
+        print("Heuristic candidates: none")
+
+    if extraction_report.fallback_response_text:
+        print("LLM fallback output:")
+        print(extraction_report.fallback_response_text)
 
     if save_html:
         output_path = Path(save_html).expanduser().resolve()
@@ -97,7 +137,70 @@ async def run(
         output_path.write_text(result.cleaned_text, encoding="utf-8")
         print(f"Saved readable text to: {output_path}")
 
+    if save_deals:
+        output_path = Path(save_deals).expanduser().resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            render_extraction_report(extraction_report),
+            encoding="utf-8",
+        )
+        print(f"Saved extracted deals to: {output_path}")
+
     return 0
+
+
+def analyze_scraped_text(
+    cleaned_text: str,
+    cleaned_html: str,
+    settings: Settings,
+    gemini_model: str | None,
+    llm_fallback_threshold: float,
+) -> ExtractionReport:
+    report = extract_deal_candidates(cleaned_text, html=cleaned_html)
+    normalized_threshold = min(1.0, max(0.0, llm_fallback_threshold))
+
+    if report.overall_confidence >= normalized_threshold:
+        return report
+
+    if not settings.gemini_api_key:
+        return report
+
+    model_name = gemini_model.strip() if gemini_model else settings.gemini_model
+    try:
+        fallback_text = extract_deals_and_coupons_from_text(
+            text=cleaned_text,
+            api_key=settings.gemini_api_key,
+            model_name=model_name,
+        )
+        report.used_llm_fallback = True
+        report.fallback_response_text = fallback_text
+    except LLMClientError as exc:
+        report.fallback_error = str(exc)
+    return report
+
+
+def render_extraction_report(report: ExtractionReport) -> str:
+    lines = [
+        f"OVERALL_CONFIDENCE={report.overall_confidence:.2f}",
+        f"USED_LLM_FALLBACK={'yes' if report.used_llm_fallback else 'no'}",
+    ]
+
+    if report.candidates:
+        lines.append("HEURISTIC_CANDIDATES")
+        for candidate in report.candidates:
+            lines.append(candidate.to_output_line())
+    else:
+        lines.append("HEURISTIC_CANDIDATES")
+        lines.append("NO_DEALS_FOUND")
+
+    if report.fallback_response_text:
+        lines.append("LLM_FALLBACK_OUTPUT")
+        lines.append(report.fallback_response_text)
+    if report.fallback_error:
+        lines.append("LLM_FALLBACK_ERROR")
+        lines.append(report.fallback_error)
+
+    return "\n".join(lines) + "\n"
 
 
 def run_gemini_deals_mode(
@@ -131,7 +234,7 @@ def main() -> int:
             return run_gemini_deals_mode(
                 settings=settings,
                 input_text_file=args.input_text_file,
-                save_deals=args.save_deals,
+                save_deals=args.save_deals or "output/deals_and_coupons.txt",
                 gemini_model=args.gemini_model,
             )
         except LLMClientError as exc:
@@ -153,6 +256,9 @@ def main() -> int:
                 url=url,
                 save_html=args.save_html,
                 save_text=args.save_text,
+                save_deals=args.save_deals,
+                gemini_model=args.gemini_model,
+                llm_fallback_threshold=args.llm_fallback_threshold,
                 settings=settings,
             )
         )
