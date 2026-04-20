@@ -151,6 +151,109 @@ class TestGenericDealExtractor:
         extractor = GenericDealExtractor()
         assert extractor.extract(html="", text="hi", url="") == []
 
+    # -- Chinese --
+    def test_chinese_zhekou_discount(self):
+        extractor = GenericDealExtractor()
+        text = "精选额外9折"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com/store/mk.html")
+        assert len(candidates) >= 1
+        assert candidates[0].discount_percent == 10.0  # 9折 = 10% off
+
+    def test_chinese_cashback(self):
+        extractor = GenericDealExtractor()
+        text = "最高5%返利"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com/store/mk.html")
+        assert len(candidates) >= 1
+        assert candidates[0].cashback_percent == 5.0
+
+    def test_chinese_coupon_code(self):
+        extractor = GenericDealExtractor()
+        text = "优惠码 EXTRA10 有效至：至2026-04-21止"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com")
+        codes = [c for c in candidates if c.coupon_code is not None]
+        assert len(codes) >= 1
+        assert "EXTRA10" in [c.coupon_code for c in codes]
+
+    def test_chinese_free_shipping(self):
+        extractor = GenericDealExtractor()
+        text = "满175美元包邮"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com")
+        shipping = [c for c in candidates if c.offer_type == "SHIPPING"]
+        assert len(shipping) >= 1
+
+    def test_chinese_full_minus(self):
+        extractor = GenericDealExtractor()
+        text = "满200减50活动"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com")
+        assert len(candidates) >= 1
+        assert candidates[0].min_spend == "200"
+        assert candidates[0].discount_amount == "50"
+
+    def test_chinese_low_as(self):
+        extractor = GenericDealExtractor()
+        text = "清仓特卖低至5折"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com")
+        assert len(candidates) >= 1
+        assert candidates[0].discount_percent == 50.0  # 5折 = 50% off
+
+    def test_chinese_buy_get(self):
+        extractor = GenericDealExtractor()
+        text = "买1送1全场促销活动"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com")
+        bogo = [c for c in candidates if c.offer_type == "BOGO"]
+        assert len(bogo) >= 1
+
+    # -- Korean --
+    def test_korean_discount(self):
+        extractor = GenericDealExtractor()
+        text = "최대 30% 할인 세일"
+        candidates = extractor.extract(html="", text=text, url="https://example.kr")
+        pct = [c for c in candidates if c.discount_percent == 30.0]
+        assert len(pct) >= 1
+
+    # -- Japanese --
+    def test_japanese_discount(self):
+        extractor = GenericDealExtractor()
+        text = "最大50%オフセール"
+        candidates = extractor.extract(html="", text=text, url="https://example.jp")
+        pct = [c for c in candidates if c.discount_percent == 50.0]
+        assert len(pct) >= 1
+
+    # -- Spanish --
+    def test_spanish_discount(self):
+        extractor = GenericDealExtractor()
+        text = "20% de descuento en toda la tienda"
+        candidates = extractor.extract(html="", text=text, url="https://example.es")
+        pct = [c for c in candidates if c.discount_percent == 20.0]
+        assert len(pct) >= 1
+
+    def test_spanish_free_shipping(self):
+        extractor = GenericDealExtractor()
+        text = "Envío gratis en pedidos superiores"
+        candidates = extractor.extract(html="", text=text, url="https://example.es")
+        shipping = [c for c in candidates if c.offer_type == "SHIPPING"]
+        assert len(shipping) >= 1
+
+    # -- Store name guessing --
+    def test_guesses_store_from_url(self):
+        extractor = GenericDealExtractor()
+        text = "20% off everything"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com/store/michael-kors.html")
+        assert candidates[0].store == "Michael Kors"
+
+    # -- DOM extraction --
+    def test_dom_extraction_from_deal_classes(self):
+        extractor = GenericDealExtractor()
+        html = """
+        <html><body>
+        <div class="coupon-item">Save 15% off with code SAVE15</div>
+        <div class="deal-card">Free shipping on orders $50+</div>
+        <div class="unrelated">Just regular text here</div>
+        </body></html>
+        """
+        candidates = extractor.extract(html=html, text="", url="https://example.com")
+        assert len(candidates) >= 2
+
 
 # ------------------------------------------------------------------
 # Scoring
