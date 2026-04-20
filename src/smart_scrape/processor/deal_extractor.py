@@ -1,18 +1,41 @@
+"""RetailMeNot-specific deal extractor.
+
+Parses the ``a[data-component-class="offer_strip"]`` DOM structure that
+RetailMeNot uses on its merchant coupon pages.
+"""
+
 from __future__ import annotations
 
+import logging
 import re
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
-from smart_scrape.processor.models import DealCandidate
-from smart_scrape.processor.models import ExtractionReport
+from smart_scrape.processor.base_extractor import BaseDealExtractor
+from smart_scrape.processor.models import DealCandidate, ExtractionReport
+from smart_scrape.processor.ranking import (
+    CASHBACK_PATTERN,
+    PERCENT_OFF_PATTERN,
+    AMOUNT_OFF_PATTERN,
+    UP_TO_AMOUNT_OFF_PATTERN,
+    BOGO_PATTERN,
+    score_candidate,
+    deduplicate_candidates,
+)
+
+logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------
+# Regex patterns specific to parsing offer metadata
+# ------------------------------------------------------------------
 
 EXPIRY_DATE_PATTERN = re.compile(
-    r"\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b",
-    re.IGNORECASE,
+    r"\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b", re.IGNORECASE,
 )
-EXPIRY_RELATIVE_PATTERN = re.compile(r"\b(expiring soon|limited time)\b", re.IGNORECASE)
+EXPIRY_RELATIVE_PATTERN = re.compile(
+    r"\b(expiring soon|limited time)\b", re.IGNORECASE,
+)
 MIN_SPEND_PATTERN = re.compile(
     r"\b(?:with|on|over|orders?\s+over|purchase|spend)\s+([$]\d+(?:\.\d{1,2})?\+?)",
     re.IGNORECASE,
@@ -21,18 +44,10 @@ AMOUNT_OFF_MIN_SPEND_PATTERN = re.compile(
     r"[$]\d+(?:\.\d{1,2})?\s+off\s+[$](\d+(?:\.\d{1,2})?\+?)",
     re.IGNORECASE,
 )
-PERCENT_OFF_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%\s+off\b", re.IGNORECASE)
-AMOUNT_OFF_PATTERN = re.compile(r"([$]\d+(?:\.\d{1,2})?)\s+off\b", re.IGNORECASE)
-UP_TO_AMOUNT_OFF_PATTERN = re.compile(
-    r"\bup to\s+([$]\d+(?:\.\d{1,2})?)\s+off\b",
-    re.IGNORECASE,
+
+QUESTION_PREFIXES = (
+    "how ", "what ", "are ", "does ", "do ", "can ", "is ", "why ", "when ",
 )
-CASHBACK_PATTERN = re.compile(
-    r"(\d+(?:\.\d+)?)\s*%\s+(?:cash\s*back|back)\b",
-    re.IGNORECASE,
-)
-BOGO_PATTERN = re.compile(r"\bbuy\s+\d+,\s*get\s+\d+\b|\bbogo\b", re.IGNORECASE)
-QUESTION_PREFIXES = ("how ", "what ", "are ", "does ", "do ", "can ", "is ", "why ", "when ")
 NOISE_PHRASES = (
     "learn how we verify coupons",
     "submit a coupon",
@@ -56,6 +71,10 @@ NOISE_PHRASES = (
 )
 
 
+# ------------------------------------------------------------------
+# Internal helpers
+# ------------------------------------------------------------------
+
 def _normalize_text(value: str) -> str:
     normalized = re.sub(r"\s+", " ", value)
     return normalized.strip(" -*|>#")
@@ -66,7 +85,9 @@ def _extract_store_hint_from_html(soup: BeautifulSoup) -> str | None:
     if heading is None:
         return None
     text = _normalize_text(heading.get_text(" ", strip=True))
-    match = re.match(r"^(.*?)\s+Coupons?\s*&\s*Promo Codes?$", text, re.IGNORECASE)
+    match = re.match(
+        r"^(.*?)\s+Coupons?\s*&\s*Promo Codes?$", text, re.IGNORECASE,
+    )
     if not match:
         return None
     store = match.group(1).strip()
@@ -81,7 +102,9 @@ def _extract_offer_type(offer_link: Tag) -> str | None:
     badges = [badge.lower() for badge in _extract_offer_badges(offer_link)]
     cta_text = _normalize_text(offer_link.get_text(" ", strip=True)).lower()
     title_node = offer_link.find("h3")
-    offer_text = _normalize_text(title_node.get_text(" ", strip=True)) if title_node else ""
+    offer_text = (
+        _normalize_text(title_node.get_text(" ", strip=True)) if title_node else ""
+    )
     offer_lower = offer_text.lower()
 
     if "free shipping" in offer_lower:
@@ -119,9 +142,16 @@ def _extract_offer_metadata(offer_link: Tag) -> list[str]:
 
 def _clean_offer_text(value: str) -> str:
     cleaned = _normalize_text(value)
-    cleaned = re.sub(r"\b(show code|get deal|get reward|see details)\b", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\b\d+\s+interested users?\b", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\badded by\s+[A-Za-z0-9._-]+\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\b(show code|get deal|get reward|see details)\b",
+        "", cleaned, flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\b\d+\s+interested users?\b", "", cleaned, flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\badded by\s+[A-Za-z0-9._-]+\b", "", cleaned, flags=re.IGNORECASE,
+    )
     cleaned = re.sub(r"\bverified\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bexclusive\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned)
@@ -158,10 +188,8 @@ def _extract_discount_percent(value: str) -> float | None:
 
 
 def _extract_discount_amount(value: str) -> str | None:
-    up_to_match = UP_TO_AMOUNT_OFF_PATTERN.search(value)
-    if up_to_match:
+    if UP_TO_AMOUNT_OFF_PATTERN.search(value):
         return None
-
     match = AMOUNT_OFF_PATTERN.search(value)
     if not match:
         return None
@@ -173,17 +201,6 @@ def _extract_max_discount_amount(value: str) -> str | None:
     if not match:
         return None
     return match.group(1)
-
-
-def _canonical_offer_key(candidate: DealCandidate) -> str:
-    offer = (candidate.offer or candidate.normalized_line).lower()
-    offer = re.sub(r"^(flash sale!|labor day savings!|today only|limited time offer)\s*", "", offer)
-    offer = re.sub(r"\s+", " ", offer).strip()
-    if candidate.discount_percent is not None:
-        offer = re.sub(r"\b\d+(?:\.\d+)?%\s+off\b", f"{candidate.discount_percent:g}% off", offer)
-    if candidate.discount_amount:
-        offer = re.sub(r"[$]\d+(?:\.\d{1,2})?\s+off\b", f"{candidate.discount_amount.lower()} off", offer)
-    return offer
 
 
 def _extract_cashback_percent(value: str) -> float | None:
@@ -204,143 +221,114 @@ def _is_noise_offer(value: str) -> bool:
     return False
 
 
-def _score_candidate(candidate: DealCandidate) -> float:
-    score = 0.3
-    offer_lower = (candidate.offer or "").lower()
-    if candidate.offer_type == "COUPON":
-        score += 0.15
-        candidate.reasons.append("coupon")
-    if candidate.offer_type == "REWARD":
-        score += 0.10
-        candidate.reasons.append("reward")
-    if candidate.offer_type == "SALE":
-        score += 0.05
-        candidate.reasons.append("sale")
-    if candidate.offer_type == "SHIPPING":
-        score += 0.12
-        candidate.reasons.append("shipping")
-    if candidate.offer_type == "BOGO":
-        score += 0.18
-        candidate.reasons.append("bogo_type")
-    if (
-        candidate.discount_percent is not None
-        or candidate.discount_amount is not None
-        or AMOUNT_OFF_PATTERN.search(candidate.offer or "")
-    ):
-        score += 0.22
-        candidate.reasons.append("discount")
-    if candidate.cashback_percent is not None:
-        score += 0.18
-        candidate.reasons.append("cashback")
-    if candidate.max_discount_amount:
-        score += 0.08
-        candidate.reasons.append("max_discount")
-    if candidate.min_spend:
-        score += 0.10
-        candidate.reasons.append("min_spend")
-    if candidate.expiry_type == "date":
-        score += 0.12
-        candidate.reasons.append("expiry_date")
-    elif candidate.expiry_type == "relative":
-        score += 0.04
-        candidate.reasons.append("expiry_relative")
-    if "free shipping" in offer_lower:
-        score += 0.14
-        candidate.reasons.append("free_shipping")
-    if BOGO_PATTERN.search(offer_lower):
-        score += 0.14
-        candidate.reasons.append("bogo")
-    if "up to" in offer_lower:
-        score += 0.06
-        candidate.reasons.append("up_to")
-    if candidate.store:
-        score += 0.05
-        candidate.reasons.append("store")
-    if candidate.offer_type in {"COUPON", "REWARD"}:
-        score += 0.05
-        candidate.reasons.append("strong_dom_type")
-    return max(0.0, min(1.0, score))
+# ------------------------------------------------------------------
+# RetailMeNot extractor class
+# ------------------------------------------------------------------
 
+class RetailMeNotExtractor(BaseDealExtractor):
+    """DOM-aware extractor for retailmenot.com store pages."""
 
-def _dedupe_candidates(candidates: list[DealCandidate]) -> list[DealCandidate]:
-    deduped: list[DealCandidate] = []
-    seen: set[str] = set()
-    for candidate in candidates:
-        key = _canonical_offer_key(candidate)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(candidate)
-    return deduped
+    name = "retailmenot"
+    supported_domains = ["retailmenot.com", "www.retailmenot.com"]
 
+    def extract(
+        self, html: str, text: str, url: str
+    ) -> list[DealCandidate]:
+        if not html.strip():
+            return []
 
-def _extract_html_candidates(html: str) -> list[DealCandidate]:
-    if not html.strip():
-        return []
+        soup = BeautifulSoup(html, "lxml")
+        store_hint = _extract_store_hint_from_html(soup)
+        offer_links = soup.select('a[data-component-class="offer_strip"]')
+        candidates: list[DealCandidate] = []
 
-    soup = BeautifulSoup(html, "lxml")
-    store_hint = _extract_store_hint_from_html(soup)
-    offer_links = soup.select('a[data-component-class="offer_strip"]')
-    candidates: list[DealCandidate] = []
-
-    for offer_link in offer_links:
-        if not isinstance(offer_link, Tag):
-            continue
-
-        offer_type = _extract_offer_type(offer_link)
-        title_node = offer_link.find("h3")
-        if title_node is None:
-            continue
-
-        offer_text = _clean_offer_text(title_node.get_text(" ", strip=True))
-        if not offer_text or _is_noise_offer(offer_text):
-            continue
-
-        badges = _extract_offer_badges(offer_link)
-        metadata = _extract_offer_metadata(offer_link)
-        combined_metadata = badges + metadata
-
-        cashback_percent = None
-        if offer_type == "REWARD":
-            cashback_percent = _extract_cashback_percent(" ".join(combined_metadata + [offer_text]))
-
-        max_discount_amount = _extract_max_discount_amount(offer_text)
-        discount_amount = _extract_discount_amount(offer_text)
-        discount_percent = _extract_discount_percent(offer_text)
-        discount_type = "upto" if max_discount_amount else None
-        min_spend = _extract_min_spend(offer_text)
-        expiry, expiry_type = _extract_expiry(combined_metadata)
-
-        candidate = DealCandidate(
-            source_line=str(offer_link),
-            normalized_line=offer_text,
-            store=store_hint,
-            offer=offer_text,
-            offer_type=offer_type,
-            cashback_percent=cashback_percent,
-            max_discount_amount=max_discount_amount,
-            discount_amount=discount_amount,
-            discount_percent=discount_percent,
-            discount_type=discount_type,
-            expiry=expiry,
-            expiry_type=expiry_type,
-            min_spend=min_spend,
+        logger.debug(
+            "retailmenot_extract_start",
+            extra={"url": url, "offer_links_found": len(offer_links)},
         )
-        candidate.confidence = _score_candidate(candidate)
-        if candidate.confidence >= 0.4:
-            candidates.append(candidate)
 
-    candidates.sort(key=lambda item: item.confidence, reverse=True)
-    return _dedupe_candidates(candidates)
+        for offer_link in offer_links:
+            if not isinstance(offer_link, Tag):
+                continue
+
+            offer_type = _extract_offer_type(offer_link)
+            title_node = offer_link.find("h3")
+            if title_node is None:
+                continue
+
+            offer_text = _clean_offer_text(title_node.get_text(" ", strip=True))
+            if not offer_text or _is_noise_offer(offer_text):
+                continue
+
+            badges = _extract_offer_badges(offer_link)
+            metadata = _extract_offer_metadata(offer_link)
+            combined_metadata = badges + metadata
+
+            cashback_percent = None
+            if offer_type == "REWARD":
+                cashback_percent = _extract_cashback_percent(
+                    " ".join(combined_metadata + [offer_text])
+                )
+
+            max_discount_amount = _extract_max_discount_amount(offer_text)
+            discount_amount = _extract_discount_amount(offer_text)
+            discount_percent = _extract_discount_percent(offer_text)
+            discount_type = "upto" if max_discount_amount else None
+            min_spend = _extract_min_spend(offer_text)
+            expiry, expiry_type = _extract_expiry(combined_metadata)
+
+            candidate = DealCandidate(
+                store=store_hint or "UNKNOWN_STORE",
+                offer=offer_text,
+                source=self.name,
+                raw_html=str(offer_link),
+                normalized_line=offer_text,
+                offer_type=offer_type,
+                cashback_percent=cashback_percent,
+                max_discount_amount=max_discount_amount,
+                discount_amount=discount_amount,
+                discount_percent=discount_percent,
+                discount_type=discount_type,
+                expiry=expiry,
+                expiry_type=expiry_type,
+                min_spend=min_spend,
+            )
+            candidate.confidence = score_candidate(candidate)
+            if candidate.confidence >= 0.4:
+                candidates.append(candidate)
+
+        candidates.sort(key=lambda item: item.confidence, reverse=True)
+        candidates = deduplicate_candidates(candidates)
+
+        logger.debug(
+            "retailmenot_extract_done",
+            extra={
+                "url": url,
+                "candidates_found": len(candidates),
+                "store": store_hint,
+            },
+        )
+        return candidates
 
 
-def extract_deal_candidates(text: str, html: str | None = None) -> ExtractionReport:
-    candidates = _extract_html_candidates(html or "")
+# ------------------------------------------------------------------
+# Legacy wrapper — keeps old call sites working
+# ------------------------------------------------------------------
+
+def extract_deal_candidates(
+    text: str, html: str | None = None
+) -> ExtractionReport:
+    """Backward-compatible entry point used by the pipeline."""
+    extractor = RetailMeNotExtractor()
+    candidates = extractor.extract(html=html or "", text=text, url="")
+
     if not candidates:
         return ExtractionReport(candidates=[], overall_confidence=0.0)
 
     top_candidates = candidates[:5]
-    overall_confidence = sum(item.confidence for item in top_candidates) / len(top_candidates)
+    overall_confidence = sum(
+        item.confidence for item in top_candidates
+    ) / len(top_candidates)
     return ExtractionReport(
         candidates=candidates,
         overall_confidence=round(overall_confidence, 2),

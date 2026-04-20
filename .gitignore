@@ -12,6 +12,10 @@ env/
 # Environment files
 .env
 
+# Excel temp/lock files
+~$*.xlsx
+~$*.xlsm
+
 # Build artifacts
 build/
 dist/

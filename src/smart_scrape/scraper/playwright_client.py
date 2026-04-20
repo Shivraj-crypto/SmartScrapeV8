@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from time import perf_counter
 from urllib.parse import urlparse
 
@@ -13,6 +14,8 @@ from smart_scrape.scraper.exceptions import ScraperError
 from smart_scrape.scraper.extractor import clean_html
 from smart_scrape.scraper.extractor import html_to_text
 from smart_scrape.scraper.models import ScrapeResult
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_url(url: str) -> str:
@@ -61,6 +64,7 @@ async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResul
     current_settings = settings or Settings.from_env()
     normalized_url = normalize_url(url)
 
+    logger.debug("scrape_start", extra={"url": normalized_url})
     started_at = perf_counter()
 
     try:
@@ -80,6 +84,17 @@ async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResul
         cleaned_text = html_to_text(cleaned_html)
 
         elapsed_ms = int((perf_counter() - started_at) * 1000)
+
+        logger.debug(
+            "scrape_complete",
+            extra={
+                "url": normalized_url,
+                "elapsed_ms": elapsed_ms,
+                "status_code": getattr(response, "status", None),
+                "html_size": len(cleaned_html),
+                "text_size": len(cleaned_text),
+            },
+        )
 
         return ScrapeResult(
             requested_url=url,
@@ -101,4 +116,6 @@ async def scrape_page(url: str, settings: Settings | None = None) -> ScrapeResul
                 f"Timed out while loading {normalized_url}. "
                 "Try increasing SCRAPE_NAVIGATION_TIMEOUT_MS."
             ) from exc
-        raise ScraperError(f"Scrapling failed while scraping {normalized_url}: {exc}") from exc
+        raise ScraperError(
+            f"Scrapling failed while scraping {normalized_url}: {exc}"
+        ) from exc

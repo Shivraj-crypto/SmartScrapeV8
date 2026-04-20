@@ -1,3 +1,3 @@
 """SmartScrapeV8 package."""
 
-__all__ = ["batch", "config", "scraper", "processor", "qa"]
+__all__ = ["batch", "config", "logging_config", "metrics", "pipeline", "processor", "qa", "rendering", "scraper"]

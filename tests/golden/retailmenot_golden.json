@@ -1,0 +1,25 @@
+{
+  "url": "https://www.retailmenot.com/view/goldenstore.com",
+  "min_expected_count": 4,
+  "expected_store": "GoldenStore",
+  "expected_top_offers": [
+    {
+      "offer_contains": "20% Off",
+      "offer_type": "COUPON",
+      "discount_percent": 20.0
+    },
+    {
+      "offer_contains": "15% Off",
+      "offer_type": "COUPON",
+      "discount_percent": 15.0
+    },
+    {
+      "offer_contains": "Cash Back",
+      "cashback_percent": 1.0
+    },
+    {
+      "offer_contains": "Free Shipping",
+      "offer_type": "SHIPPING"
+    }
+  ]
+}

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from pathlib import Path
 from typing import Any
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
 
 
 class _GenerativeModelProtocol(Protocol):
@@ -69,7 +72,7 @@ def _load_genai_module() -> _GenAIModuleProtocol:
     try:
         module = importlib.import_module("google.generativeai")
         return module  # type: ignore[return-value]
-    except ImportError as exc:  # pragma: no cover - handled at runtime.
+    except ImportError as exc:  # pragma: no cover
         raise MissingGeminiDependencyError(
             "google-generativeai is not installed. Add it to your environment first."
         ) from exc
@@ -116,6 +119,10 @@ def extract_deals_and_coupons_from_file(
 
     genai.configure(api_key=normalized_api_key)
 
+    logger.info(
+        "gemini_file_upload",
+        extra={"file": str(input_path), "model": model_name},
+    )
     uploaded_file = genai.upload_file(path=str(input_path), mime_type="text/plain")
     model = genai.GenerativeModel(
         model_name=model_name,
@@ -134,6 +141,10 @@ def extract_deals_and_coupons_from_file(
     output_path = output_text_file.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(response_text + "\n", encoding="utf-8")
+    logger.info(
+        "gemini_file_complete",
+        extra={"output": str(output_path), "response_size": len(response_text)},
+    )
 
     return response_text
 
@@ -157,6 +168,12 @@ def extract_deals_and_coupons_from_text(
         raise GeminiConfigurationError("Cannot send empty text to Gemini.")
 
     genai.configure(api_key=normalized_api_key)
+
+    logger.debug(
+        "gemini_text_request",
+        extra={"model": model_name, "text_length": len(normalized_text)},
+    )
+
     model = genai.GenerativeModel(
         model_name=model_name,
         system_instruction=DEALS_SYSTEM_PROMPT,
@@ -172,4 +189,8 @@ def extract_deals_and_coupons_from_text(
     if not response_text:
         raise GeminiResponseError("Gemini returned an empty response.")
 
+    logger.debug(
+        "gemini_text_complete",
+        extra={"response_size": len(response_text)},
+    )
     return response_text

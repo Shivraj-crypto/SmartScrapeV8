@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 import html2text
 from bs4 import BeautifulSoup
 from bs4 import Comment
 from bs4.element import Tag
+
+logger = logging.getLogger(__name__)
 
 # Remove elements that are usually noise for downstream content processing.
 REMOVABLE_TAGS = ("script", "style", "noscript", "svg", "canvas", "iframe")
@@ -140,7 +144,9 @@ def clean_html(html_content: str) -> str:
             element.decompose()
 
     root = soup.body if soup.body is not None else soup
-    return root.prettify().strip()
+    result = root.prettify().strip()
+    logger.debug("clean_html: %d → %d chars", len(html_content), len(result))
+    return result
 
 
 def html_to_text(cleaned_html: str) -> str:
