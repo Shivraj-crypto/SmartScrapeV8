@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # Allow running this file directly without installing the package first.
@@ -11,6 +12,11 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from smart_scrape.batch import BatchInputError
+from smart_scrape.batch import BatchSummaryRecord
+from smart_scrape.batch import build_output_stem
+from smart_scrape.batch import load_urls_from_excel
+from smart_scrape.batch import write_batch_summary_csv
 from smart_scrape.config import Settings
 from smart_scrape.processor import ExtractionReport
 from smart_scrape.processor import extract_deal_candidates
@@ -23,7 +29,21 @@ from smart_scrape.scraper.exceptions import (
     NavigationError,
     ScraperError,
 )
+from smart_scrape.scraper.models import ScrapeResult
 from smart_scrape.scraper.playwright_client import scrape_page
+
+
+@dataclass(slots=True)
+class PipelineRunResult:
+    scrape_result: ScrapeResult
+    extraction_report: ExtractionReport
+
+
+@dataclass(slots=True)
+class SavedOutputPaths:
+    html_path: Path | None = None
+    text_path: Path | None = None
+    deals_path: Path | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,6 +77,24 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--input-excel-file",
+        default=None,
+        help="Path to an .xlsx or .xlsm file containing URLs to scrape in batch mode.",
+    )
+    parser.add_argument(
+        "--excel-sheet",
+        default=None,
+        help="Optional worksheet name for --input-excel-file. Defaults to the active sheet.",
+    )
+    parser.add_argument(
+        "--excel-url-column",
+        default=None,
+        help=(
+            "Optional column header containing URLs in the Excel file. "
+            "Defaults to auto-detect."
+        ),
+    )
+    parser.add_argument(
         "--save-deals",
         default=None,
         help="Optional file path to write extracted deals/coupons output.",
@@ -75,18 +113,49 @@ def parse_args() -> argparse.Namespace:
             "threshold. Range: 0.0 to 1.0."
         ),
     )
+    parser.add_argument(
+        "--batch-output-dir",
+        default="output/batch_run",
+        help="Output directory for batch scraping results when using --input-excel-file.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=5,
+        help="Number of URLs to process before the longer inter-batch pause.",
+    )
+    parser.add_argument(
+        "--delay-between-urls-seconds",
+        type=float,
+        default=3.0,
+        help="Delay between URL requests in batch mode.",
+    )
+    parser.add_argument(
+        "--delay-between-batches-seconds",
+        type=float,
+        default=20.0,
+        help="Delay between batches in batch mode.",
+    )
+    parser.add_argument(
+        "--cooldown-on-error-seconds",
+        type=float,
+        default=30.0,
+        help="Extra cooldown after a failed URL in batch mode.",
+    )
+    parser.add_argument(
+        "--batch-save-html",
+        action="store_true",
+        help="Also save cleaned HTML per URL in batch mode.",
+    )
     return parser.parse_args()
 
 
-async def run(
+async def process_url(
     url: str,
-    save_html: str | None,
-    save_text: str | None,
-    save_deals: str | None,
     gemini_model: str | None,
     llm_fallback_threshold: float,
     settings: Settings,
-) -> int:
+) -> PipelineRunResult:
     result = await scrape_page(url=url, settings=settings)
     extraction_report = analyze_scraped_text(
         cleaned_text=result.cleaned_text,
@@ -95,6 +164,15 @@ async def run(
         gemini_model=gemini_model,
         llm_fallback_threshold=llm_fallback_threshold,
     )
+    return PipelineRunResult(
+        scrape_result=result,
+        extraction_report=extraction_report,
+    )
+
+
+def print_run_summary(run_result: PipelineRunResult) -> None:
+    result = run_result.scrape_result
+    extraction_report = run_result.extraction_report
 
     print(f"Requested URL: {result.requested_url}")
     print(f"Final URL: {result.final_url}")
@@ -125,17 +203,34 @@ async def run(
         print("LLM fallback output:")
         print(extraction_report.fallback_response_text)
 
+
+def save_pipeline_outputs(
+    run_result: PipelineRunResult,
+    save_html: str | None,
+    save_text: str | None,
+    save_deals: str | None,
+    *,
+    verbose: bool = True,
+) -> SavedOutputPaths:
+    result = run_result.scrape_result
+    extraction_report = run_result.extraction_report
+    saved_paths = SavedOutputPaths()
+
     if save_html:
         output_path = Path(save_html).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(result.cleaned_html, encoding="utf-8")
-        print(f"Saved cleaned HTML to: {output_path}")
+        saved_paths.html_path = output_path
+        if verbose:
+            print(f"Saved cleaned HTML to: {output_path}")
 
     if save_text:
         output_path = Path(save_text).expanduser().resolve()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(result.cleaned_text, encoding="utf-8")
-        print(f"Saved readable text to: {output_path}")
+        saved_paths.text_path = output_path
+        if verbose:
+            print(f"Saved readable text to: {output_path}")
 
     if save_deals:
         output_path = Path(save_deals).expanduser().resolve()
@@ -144,7 +239,35 @@ async def run(
             render_extraction_report(extraction_report),
             encoding="utf-8",
         )
-        print(f"Saved extracted deals to: {output_path}")
+        saved_paths.deals_path = output_path
+        if verbose:
+            print(f"Saved extracted deals to: {output_path}")
+
+    return saved_paths
+
+
+async def run(
+    url: str,
+    save_html: str | None,
+    save_text: str | None,
+    save_deals: str | None,
+    gemini_model: str | None,
+    llm_fallback_threshold: float,
+    settings: Settings,
+) -> int:
+    run_result = await process_url(
+        url=url,
+        gemini_model=gemini_model,
+        llm_fallback_threshold=llm_fallback_threshold,
+        settings=settings,
+    )
+    print_run_summary(run_result)
+    save_pipeline_outputs(
+        run_result,
+        save_html=save_html,
+        save_text=save_text,
+        save_deals=save_deals,
+    )
 
     return 0
 
@@ -203,6 +326,191 @@ def render_extraction_report(report: ExtractionReport) -> str:
     return "\n".join(lines) + "\n"
 
 
+async def run_excel_batch(
+    input_excel_file: str,
+    excel_sheet: str | None,
+    excel_url_column: str | None,
+    batch_output_dir: str,
+    batch_size: int,
+    delay_between_urls_seconds: float,
+    delay_between_batches_seconds: float,
+    cooldown_on_error_seconds: float,
+    batch_save_html: bool,
+    gemini_model: str | None,
+    llm_fallback_threshold: float,
+    settings: Settings,
+) -> int:
+    url_records = load_urls_from_excel(
+        input_excel_file=Path(input_excel_file),
+        url_column=excel_url_column,
+        sheet_name=excel_sheet,
+    )
+
+    output_dir = Path(batch_output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    text_dir = output_dir / "text"
+    deals_dir = output_dir / "deals"
+    html_dir = output_dir / "html"
+    text_dir.mkdir(parents=True, exist_ok=True)
+    deals_dir.mkdir(parents=True, exist_ok=True)
+    if batch_save_html:
+        html_dir.mkdir(parents=True, exist_ok=True)
+
+    total_urls = len(url_records)
+    total_batches = (total_urls + batch_size - 1) // batch_size
+    summary_records: list[BatchSummaryRecord] = []
+    failed_count = 0
+
+    print(
+        f"Loaded {total_urls} URLs from {Path(input_excel_file).expanduser().resolve()}"
+    )
+    print(
+        "Batch settings: "
+        f"batch_size={batch_size}, "
+        f"delay_between_urls={delay_between_urls_seconds:.1f}s, "
+        f"delay_between_batches={delay_between_batches_seconds:.1f}s, "
+        f"cooldown_on_error={cooldown_on_error_seconds:.1f}s"
+    )
+
+    for batch_offset in range(0, total_urls, batch_size):
+        batch_index = (batch_offset // batch_size) + 1
+        batch_records = url_records[batch_offset : batch_offset + batch_size]
+        print(
+            f"Batch {batch_index}/{total_batches} starting "
+            f"({len(batch_records)} URLs)."
+        )
+
+        for offset, url_record in enumerate(batch_records):
+            global_index = batch_offset + offset + 1
+            output_stem = build_output_stem(url_record.row_number, url_record.url)
+            html_path = html_dir / f"{output_stem}.html" if batch_save_html else None
+            text_path = text_dir / f"{output_stem}.txt"
+            deals_path = deals_dir / f"{output_stem}.txt"
+
+            print(
+                f"[{global_index}/{total_urls}] "
+                f"Row {url_record.row_number}: {url_record.url}"
+            )
+
+            slept_for_error = False
+            try:
+                run_result = await process_url(
+                    url=url_record.url,
+                    gemini_model=gemini_model,
+                    llm_fallback_threshold=llm_fallback_threshold,
+                    settings=settings,
+                )
+                saved_paths = save_pipeline_outputs(
+                    run_result,
+                    save_html=str(html_path) if html_path else None,
+                    save_text=str(text_path),
+                    save_deals=str(deals_path),
+                    verbose=False,
+                )
+                top_candidate = (
+                    run_result.extraction_report.candidates[0]
+                    if run_result.extraction_report.candidates
+                    else None
+                )
+                summary_records.append(
+                    BatchSummaryRecord(
+                        row_number=url_record.row_number,
+                        requested_url=run_result.scrape_result.requested_url,
+                        status="ok",
+                        final_url=run_result.scrape_result.final_url,
+                        title=run_result.scrape_result.title or None,
+                        status_code=run_result.scrape_result.status_code,
+                        elapsed_ms=run_result.scrape_result.elapsed_ms,
+                        overall_confidence=run_result.extraction_report.overall_confidence,
+                        candidate_count=len(run_result.extraction_report.candidates),
+                        used_llm_fallback=run_result.extraction_report.used_llm_fallback,
+                        fallback_error=run_result.extraction_report.fallback_error,
+                        top_offer=top_candidate.offer if top_candidate else None,
+                        top_offer_type=top_candidate.offer_type if top_candidate else None,
+                        html_path=str(saved_paths.html_path) if saved_paths.html_path else None,
+                        text_path=str(saved_paths.text_path) if saved_paths.text_path else None,
+                        deals_path=str(saved_paths.deals_path) if saved_paths.deals_path else None,
+                    )
+                )
+                print(
+                    "  OK | "
+                    f"status={run_result.scrape_result.status_code or 'unknown'} | "
+                    f"confidence={run_result.extraction_report.overall_confidence:.2f} | "
+                    f"candidates={len(run_result.extraction_report.candidates)}"
+                )
+            except (
+                InvalidURLError,
+                NavigationError,
+                EmptyContentError,
+                ScraperError,
+                OSError,
+            ) as exc:
+                failed_count += 1
+                summary_records.append(
+                    BatchSummaryRecord(
+                        row_number=url_record.row_number,
+                        requested_url=url_record.url,
+                        status="error",
+                        error=str(exc),
+                    )
+                )
+                print(f"  FAILED | {exc}")
+                if cooldown_on_error_seconds > 0 and global_index < total_urls:
+                    print(
+                        "  Cooling down after error for "
+                        f"{cooldown_on_error_seconds:.1f}s"
+                    )
+                    await asyncio.sleep(cooldown_on_error_seconds)
+                    slept_for_error = True
+            except Exception as exc:
+                failed_count += 1
+                summary_records.append(
+                    BatchSummaryRecord(
+                        row_number=url_record.row_number,
+                        requested_url=url_record.url,
+                        status="error",
+                        error=f"{exc.__class__.__name__}: {exc}",
+                    )
+                )
+                print(f"  FAILED | {exc.__class__.__name__}: {exc}")
+                if cooldown_on_error_seconds > 0 and global_index < total_urls:
+                    print(
+                        "  Cooling down after unexpected error for "
+                        f"{cooldown_on_error_seconds:.1f}s"
+                    )
+                    await asyncio.sleep(cooldown_on_error_seconds)
+                    slept_for_error = True
+
+            has_next_url = global_index < total_urls
+            has_next_in_batch = offset < len(batch_records) - 1
+            if (
+                has_next_url
+                and has_next_in_batch
+                and delay_between_urls_seconds > 0
+                and not slept_for_error
+            ):
+                print(
+                    f"  Sleeping {delay_between_urls_seconds:.1f}s before next URL"
+                )
+                await asyncio.sleep(delay_between_urls_seconds)
+
+        if batch_index < total_batches and delay_between_batches_seconds > 0:
+            print(
+                f"Batch {batch_index}/{total_batches} complete. "
+                f"Sleeping {delay_between_batches_seconds:.1f}s before next batch."
+            )
+            await asyncio.sleep(delay_between_batches_seconds)
+
+    summary_path = output_dir / "batch_summary.csv"
+    write_batch_summary_csv(summary_records, summary_path)
+    print(f"Batch summary saved to: {summary_path}")
+    print(
+        f"Batch finished. Total URLs: {total_urls}, "
+        f"succeeded: {total_urls - failed_count}, failed: {failed_count}"
+    )
+    return 0 if failed_count == 0 else 9
+
+
 def run_gemini_deals_mode(
     settings: Settings,
     input_text_file: str,
@@ -229,6 +537,36 @@ def main() -> int:
     args = parse_args()
     settings = Settings.from_env()
 
+    active_inputs = [
+        bool(args.url),
+        bool(args.input_text_file),
+        bool(args.input_excel_file),
+    ]
+    if sum(active_inputs) > 1:
+        print(
+            "Error: use only one of URL input, --input-text-file, or --input-excel-file.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.batch_size <= 0:
+        print("Error: --batch-size must be greater than 0.", file=sys.stderr)
+        return 2
+
+    if any(
+        value < 0
+        for value in (
+            args.delay_between_urls_seconds,
+            args.delay_between_batches_seconds,
+            args.cooldown_on_error_seconds,
+        )
+    ):
+        print(
+            "Error: batch delay values must be 0 or greater.",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.input_text_file:
         try:
             return run_gemini_deals_mode(
@@ -242,6 +580,31 @@ def main() -> int:
             return 6
         except OSError as exc:
             print(f"File operation failed: {exc}", file=sys.stderr)
+            return 7
+
+    if args.input_excel_file:
+        try:
+            return asyncio.run(
+                run_excel_batch(
+                    input_excel_file=args.input_excel_file,
+                    excel_sheet=args.excel_sheet,
+                    excel_url_column=args.excel_url_column,
+                    batch_output_dir=args.batch_output_dir,
+                    batch_size=args.batch_size,
+                    delay_between_urls_seconds=args.delay_between_urls_seconds,
+                    delay_between_batches_seconds=args.delay_between_batches_seconds,
+                    cooldown_on_error_seconds=args.cooldown_on_error_seconds,
+                    batch_save_html=args.batch_save_html,
+                    gemini_model=args.gemini_model,
+                    llm_fallback_threshold=args.llm_fallback_threshold,
+                    settings=settings,
+                )
+            )
+        except BatchInputError as exc:
+            print(f"Batch input error: {exc}", file=sys.stderr)
+            return 8
+        except OSError as exc:
+            print(f"Batch file operation failed: {exc}", file=sys.stderr)
             return 7
 
     url = args.url.strip() if args.url else input("Enter URL to scrape: ").strip()
