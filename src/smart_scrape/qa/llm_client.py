@@ -2,6 +2,29 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
+from typing import Any
+from typing import Protocol
+
+
+class _GenerativeModelProtocol(Protocol):
+    def generate_content(self, contents: Any) -> Any:
+        ...
+
+
+class _GenAIModuleProtocol(Protocol):
+    def configure(self, *, api_key: str) -> None:
+        ...
+
+    def upload_file(self, *, path: str, mime_type: str) -> Any:
+        ...
+
+    def GenerativeModel(
+        self,
+        *,
+        model_name: str,
+        system_instruction: str,
+    ) -> _GenerativeModelProtocol:
+        ...
 
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
@@ -42,9 +65,10 @@ class GeminiResponseError(LLMClientError):
     """Raised when Gemini returns an unusable response."""
 
 
-def _load_genai_module() -> object:
+def _load_genai_module() -> _GenAIModuleProtocol:
     try:
-        return importlib.import_module("google.generativeai")
+        module = importlib.import_module("google.generativeai")
+        return module  # type: ignore[return-value]
     except ImportError as exc:  # pragma: no cover - handled at runtime.
         raise MissingGeminiDependencyError(
             "google-generativeai is not installed. Add it to your environment first."
