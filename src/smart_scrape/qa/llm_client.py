@@ -68,6 +68,10 @@ class GeminiResponseError(LLMClientError):
     """Raised when Gemini returns an unusable response."""
 
 
+class GeminiQuotaExceededError(LLMClientError):
+    """Raised when the Gemini API quota is exhausted (429)."""
+
+
 def _load_genai_module() -> _GenAIModuleProtocol:
     try:
         module = importlib.import_module("google.generativeai")
@@ -123,13 +127,17 @@ def extract_deals_and_coupons_from_file(
         "gemini_file_upload",
         extra={"file": str(input_path), "model": model_name},
     )
-    uploaded_file = genai.upload_file(path=str(input_path), mime_type="text/plain")
-    model = genai.GenerativeModel(
-        model_name=model_name,
-        system_instruction=DEALS_SYSTEM_PROMPT,
-    )
 
-    response = model.generate_content([uploaded_file, DEALS_USER_PROMPT])
+    try:
+        uploaded_file = genai.upload_file(path=str(input_path), mime_type="text/plain")
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction=DEALS_SYSTEM_PROMPT,
+        )
+
+        response = model.generate_content([uploaded_file, DEALS_USER_PROMPT])
+    except Exception as exc:
+        _handle_api_error(exc)
 
     response_text = (getattr(response, "text", "") or "").strip()
     if not response_text:
@@ -174,13 +182,16 @@ def extract_deals_and_coupons_from_text(
         extra={"model": model_name, "text_length": len(normalized_text)},
     )
 
-    model = genai.GenerativeModel(
-        model_name=model_name,
-        system_instruction=DEALS_SYSTEM_PROMPT,
-    )
-    response = model.generate_content(
-        DEALS_TEXT_USER_PROMPT_PREFIX + normalized_text
-    )
+    try:
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction=DEALS_SYSTEM_PROMPT,
+        )
+        response = model.generate_content(
+            DEALS_TEXT_USER_PROMPT_PREFIX + normalized_text
+        )
+    except Exception as exc:
+        _handle_api_error(exc)
 
     response_text = (getattr(response, "text", "") or "").strip()
     if not response_text:
@@ -194,3 +205,27 @@ def extract_deals_and_coupons_from_text(
         extra={"response_size": len(response_text)},
     )
     return response_text
+
+
+def _handle_api_error(exc: Exception) -> None:
+    """Convert Gemini API errors into LLMClientError subclasses.
+
+    Specifically catches quota exhaustion (429 ResourceExhausted)
+    so the pipeline can fall back to heuristic-only extraction.
+    """
+    exc_name = exc.__class__.__name__
+    exc_msg = str(exc).lower()
+
+    # Quota / rate-limit errors
+    if "resourceexhausted" in exc_name.lower() or "429" in str(exc) or "quota" in exc_msg:
+        logger.warning(
+            "gemini_quota_exceeded — falling back to heuristic-only extraction",
+            extra={"error": str(exc)},
+        )
+        raise GeminiQuotaExceededError(
+            "Gemini API quota exceeded. Using heuristic + regex extraction only."
+        ) from exc
+
+    # Any other API error
+    logger.error("gemini_api_error", extra={"error": str(exc)})
+    raise LLMClientError(f"Gemini API call failed: {exc}") from exc
