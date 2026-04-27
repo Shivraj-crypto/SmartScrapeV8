@@ -6,7 +6,7 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 
 - Step 1: Python project setup and module structure
 - Step 2: Scrapling-based scraper that fetches a page and returns cleaned HTML + readable text
-- Heuristic-first deals extraction: regex-based cashback, discount, coupon code, expiry, and min-spend extraction with confidence scoring
+- Heuristic-first deals extraction: domain-specific extractors plus a generic multi-language fallback with confidence scoring
 - Gemini fallback: only used when heuristic confidence is below the configured threshold
 - Excel batch mode: read URLs from `.xlsx` / `.xlsm`, process them in batches, and throttle requests between URLs and batches
 - Gemini integration: upload a `.txt` file, extract only deals/coupons, and save output to `.txt`
@@ -16,31 +16,31 @@ MVP foundation for an AI-powered web scraping and question-answering system.
 1. Create and activate a virtual environment.
 2. Install dependencies:
 
-   pip install -r requirements.txt
+   `pip install -r requirements.txt`
 
 3. Install Scrapling browser/runtime support:
 
-   python scripts/setup_env.py
+   `python scripts/setup_env.py`
 
 4. Set your Gemini API key (PowerShell):
 
-   $env:GEMINI_API_KEY="your_api_key_here"
+   `$env:GEMINI_API_KEY="your_api_key_here"`
 
 5. Run a scrape:
 
-   python main.py https://apple.com --save-html output/apple.html --save-text output/apple.txt
+   `python main.py https://apple.com --save-html output/apple.html --save-text output/apple.txt`
 
    To also save extracted deals:
 
-   python main.py https://apple.com --save-html output/apple.html --save-text output/apple.txt --save-deals output/apple_deals.txt
+   `python main.py https://apple.com --save-html output/apple.html --save-text output/apple.txt --save-deals output/apple_deals.txt`
 
 6. Run deals/coupons extraction from a text file:
 
-   python main.py --input-text-file sample_input.txt --save-deals output/deals.txt
+   `python main.py --input-text-file sample_input.txt --save-deals output/deals.txt`
 
 7. Run Excel batch scraping with request pacing:
 
-   python main.py --input-excel-file input/urls.xlsx --excel-url-column url --batch-output-dir output/batch_run --batch-size 5 --delay-between-urls-seconds 3 --delay-between-batches-seconds 20 --cooldown-on-error-seconds 30
+   `python main.py --input-excel-file input/urls.xlsx --excel-url-column url --batch-output-dir output/batch_run --batch-size 5 --delay-between-urls-seconds 3 --delay-between-batches-seconds 20 --cooldown-on-error-seconds 30`
 
    This creates:
 
@@ -48,6 +48,20 @@ MVP foundation for an AI-powered web scraping and question-answering system.
    - `output/batch_run/text/`
    - `output/batch_run/deals/`
    - `output/batch_run/html/` if `--batch-save-html` is used
+
+## Generic extractor strategy
+
+The generic extractor is the default fallback for sites that do not have a dedicated parser yet. The current accuracy idea is:
+
+- Use two passes instead of one: scan coupon-like DOM containers first, then scan cleaned text line by line.
+- Normalize before matching: strip CTA noise such as `Show Code`, collapse whitespace, decode HTML entities, and split packed lines like `Deal | Code | Expiry`.
+- Require at least one strong deal signal: a candidate must contain a real signal such as `% off`, `$ off`, cashback, free shipping, BOGO, or a valid coupon code.
+- Treat generic promo words as weak signals only: words like `deal`, `offer`, `sale`, or generic promo labels can boost confidence, but they do not create a candidate by themselves.
+- Extract structured fields when possible: `offer_type`, `coupon_code`, `discount_percent`, `discount_amount`, `max_discount_amount`, `cashback_percent`, `min_spend`, `expiry`, and `store`.
+- Support multiple languages in the fallback layer: English, Chinese, Korean, Japanese, Spanish, and Portuguese-style coupon text patterns are handled by the generic parser.
+- Score and deduplicate at the end: strong multi-signal lines rank higher, while repeated DOM/text matches collapse into one candidate.
+
+This makes the fallback extractor more conservative on noisy content such as support text, generic promo headings, cookie banners, and article text, while still improving recall on real coupon/deal lines.
 
 ## Notes
 
