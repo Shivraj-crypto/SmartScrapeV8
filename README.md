@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/res/SmartScrapeV8.png" alt="SmartScrapeV8" width="900">
+  <img src="src/res/SmartScrapeV8.png" alt="SmartScrapeV8" width="450">
 </p>
 
 <h1 align="center">SmartScrapeV8 &mdash; AI Deal Extraction Pipeline</h1>
