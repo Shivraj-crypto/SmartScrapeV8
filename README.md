@@ -1,6 +1,31 @@
-# SmartScrapeV8
+<p align="center">
+  <img src="src/res/SmartScrapeV8.png" alt="SmartScrapeV8" width="900">
+</p>
 
-MVP foundation for an AI-powered web scraping and question-answering system.
+<h1 align="center">SmartScrapeV8 &mdash; AI Deal Extraction Pipeline</h1>
+
+<p align="center">
+  <strong>Scrape pages, detect deals and coupons, score candidates, and fall back to Gemini only when heuristics are not confident enough.</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/Scraper-Scrapling-111827?style=for-the-badge" alt="Scrapling">
+  <img src="https://img.shields.io/badge/Extractor-Heuristic--first-0F766E?style=for-the-badge" alt="Heuristic first">
+  <img src="https://img.shields.io/badge/Fallback-Gemini-F97316?style=for-the-badge" alt="Gemini fallback">
+  <img src="https://img.shields.io/badge/Batch-Excel%20Mode-2563EB?style=for-the-badge" alt="Excel batch mode">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#what-is-implemented-now">Features</a> &middot;
+  <a href="#generic-extractor-strategy">Extractor Strategy</a> &middot;
+  <a href="#notes">Notes</a>
+</p>
+
+SmartScrapeV8 is a heuristic-first scraping and extraction project focused on finding real e-commerce deals from messy web content. It fetches a page, cleans the HTML, converts it to readable text, runs domain-aware and generic extractors, scores the results, and only calls Gemini when the heuristic layer is not strong enough.
+
+Supported workflows include single-URL scraping, text-file-only extraction, structured deal output saving, and paced Excel batch processing for multiple URLs.
 
 ## What is implemented now
 
