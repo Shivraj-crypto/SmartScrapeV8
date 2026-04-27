@@ -111,6 +111,14 @@ class TestGenericDealExtractor:
         candidates = extractor.extract(html="", text=sample_generic_text, url="https://example.com")
         amt = [c for c in candidates if c.discount_amount is not None]
         assert len(amt) >= 1
+        assert "$15" in [c.discount_amount for c in amt]
+
+    def test_extracts_min_spend_from_amount_off_line(self, sample_generic_text: str):
+        extractor = GenericDealExtractor()
+        candidates = extractor.extract(html="", text=sample_generic_text, url="https://example.com")
+        with_spend = [c for c in candidates if c.discount_amount == "$15"]
+        assert len(with_spend) >= 1
+        assert with_spend[0].min_spend == "$100"
 
     def test_extracts_free_shipping(self, sample_generic_text: str):
         extractor = GenericDealExtractor()
@@ -136,6 +144,14 @@ class TestGenericDealExtractor:
         codes = [c for c in candidates if c.coupon_code is not None]
         assert len(codes) >= 1
         assert "WELCOME25" in [c.coupon_code for c in codes]
+
+    def test_extracts_expiry_from_generic_line(self):
+        extractor = GenericDealExtractor()
+        text = "Save 20% off sitewide with code SAVE20 until May 10, 2026."
+        candidates = extractor.extract(html="", text=text, url="https://example.com")
+        assert len(candidates) >= 1
+        assert candidates[0].expiry == "May 10, 2026"
+        assert candidates[0].expiry_type == "date"
 
     def test_source_is_generic(self, sample_generic_text: str):
         extractor = GenericDealExtractor()
@@ -202,6 +218,12 @@ class TestGenericDealExtractor:
         candidates = extractor.extract(html="", text=text, url="https://55haitao.com")
         bogo = [c for c in candidates if c.offer_type == "BOGO"]
         assert len(bogo) >= 1
+
+    def test_chinese_generic_signal_without_offer_is_filtered(self):
+        extractor = GenericDealExtractor()
+        text = "优惠活动进行中"
+        candidates = extractor.extract(html="", text=text, url="https://55haitao.com")
+        assert candidates == []
 
     # -- Korean --
     def test_korean_discount(self):
