@@ -1,6 +1,6 @@
-<p align="center">
-   <img src="src/res/SmartScrapeV823.png" alt="SmartScrapeV8" width="650">
-</p>
+<div align="center" style="line-height: 0; margin: 0;">
+   <img src="src/res/SmartScrapeV823.png" alt="SmartScrapeV8" width="650" style="display: block; margin: 0 auto;">
+</div>
 
 <h1 align="center">SmartScrapeV8 &mdash; AI Deal Extraction Pipeline</h1>
 
