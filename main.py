@@ -82,7 +82,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-save-html", action="store_true")
     parser.add_argument(
         "--output-format", default="text", choices=["text", "json", "csv"],
-        help="Output format for extracted deals (default: text).",
+        help="Output format for extracted deals files (default: text).",
     )
     parser.add_argument(
         "--max-retries", type=int, default=2,
