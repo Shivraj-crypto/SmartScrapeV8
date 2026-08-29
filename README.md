@@ -25,7 +25,7 @@
 
 SmartScrapeV8 is a heuristic-first scraping and extraction project focused on finding real e-commerce deals from messy web content. It fetches a page, cleans the HTML, converts it to readable text, runs domain-aware and generic extractors, scores the results, and only calls Gemini when the heuristic layer is not strong enough.
 
-Supported workflows include single-URL scraping, text-file-only extraction, structured deal output saving, and paced Excel batch processing for multiple URLs.
+Supported workflows include single-URL scraping, text-file-only extraction, structured deal output saving, and paced Excel batch processing for multiple URLs with clear summary files.
 
 ## What is implemented now
 
