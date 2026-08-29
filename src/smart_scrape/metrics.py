@@ -8,7 +8,7 @@ from typing import Any
 
 @dataclass
 class PipelineMetrics:
-    """Tracks key performance indicators across a pipeline run."""
+    """Tracks key scrape and extraction indicators across a pipeline run."""
 
     urls_processed: int = 0
     urls_succeeded: int = 0
