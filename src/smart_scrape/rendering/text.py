@@ -7,7 +7,7 @@ from smart_scrape.rendering.base import Renderer
 
 
 class TextRenderer(Renderer):
-    """Pipe-delimited text output (the legacy default)."""
+    """Pipe-delimited text output for saved extraction reports."""
 
     format_name = "text"
 

@@ -11,7 +11,7 @@ class BaseDealExtractor(ABC):
     """Every site-specific (or generic) extractor inherits from this.
 
     Subclasses **must** set ``name`` and ``supported_domains`` at class
-    level, and implement ``extract``.
+    level, and implement ````.
     """
 
     # Class attributes that subclasses should override
