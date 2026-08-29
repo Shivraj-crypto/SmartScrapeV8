@@ -14,6 +14,7 @@ class BaseDealExtractor(ABC):
     level, and implement ``extract``.
     """
 
+    # Class attributes that subclasses should override
     name: str = ""
     supported_domains: list[str] = []
 
