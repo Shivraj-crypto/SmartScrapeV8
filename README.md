@@ -92,6 +92,7 @@ This makes the fallback extractor more conservative on noisy content such as sup
 
 - Gemini extraction uses a strict system prompt that returns only deals/coupons.
 - Scrape mode runs regex heuristics first and prints an overall confidence score.
+- Saved deal outputs can be written as text, JSON, or CSV with `--output-format`.
 - Gemini fallback in scrape mode is controlled by `--llm-fallback-threshold` and only runs when `GEMINI_API_KEY` is available.
 - Excel batch mode auto-detects common URL headers such as `url`, `link`, `website`, and `page_url`. Use `--excel-url-column` if your file uses a different header.
 - Batch processing is sequential inside each batch to reduce the chance of rate limiting or IP bans. Use `--batch-size`, `--delay-between-urls-seconds`, `--delay-between-batches-seconds`, and `--cooldown-on-error-seconds` to tune pacing.
