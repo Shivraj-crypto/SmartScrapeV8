@@ -9,7 +9,7 @@ from smart_scrape.rendering.base import Renderer
 
 
 class JSONRenderer(Renderer):
-    """Outputs deals as a JSON document."""
+    """Outputs extracted deals as a structured JSON document."""
 
     format_name = "json"
 
