@@ -17,6 +17,7 @@ class BaseDealExtractor(ABC):
     # Class attributes that subclasses should override
     name: str = ""
     supported_domains: list[str] = []
+    non_supported_domains = {}
 
     @classmethod
     def is_configured(cls) -> bool:
