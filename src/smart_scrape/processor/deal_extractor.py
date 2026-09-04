@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Regex patterns specific to parsing offer metadata
 # ------------------------------------------------------------------
 
+WHITESPACE_PATTERN = re.compile(r"\s+")
 EXPIRY_DATE_PATTERN = re.compile(
     r"\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b", re.IGNORECASE,
 )
@@ -76,7 +77,7 @@ NOISE_PHRASES = (
 # ------------------------------------------------------------------
 
 def _normalize_text(value: str) -> str:
-    normalized = re.sub(r"\s+", " ", value)
+    normalized = WHITESPACE_PATTERN.sub(" ", value)
     return normalized.strip(" -*|>#")
 
 
@@ -152,7 +153,7 @@ def _clean_offer_text(value: str) -> str:
     )
     cleaned = re.sub(r"\bverified\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\bexclusive\b", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s+", " ", cleaned)
+    cleaned = WHITESPACE_PATTERN.sub(" ", cleaned)
     return cleaned.strip(" |-")
 
 
