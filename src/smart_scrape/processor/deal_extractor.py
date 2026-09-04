@@ -123,21 +123,19 @@ def _extract_offer_type(offer_link: Tag) -> str | None:
 
 
 def _extract_offer_badges(offer_link: Tag) -> list[str]:
-    badges: list[str] = []
-    for span in offer_link.find_all("span"):
-        text = _normalize_text(span.get_text(" ", strip=True))
-        if text:
-            badges.append(text)
-    return badges
+    return [
+        text
+        for span in offer_link.find_all("span")
+        if (text := _normalize_text(span.get_text(" ", strip=True)))
+    ]
 
 
 def _extract_offer_metadata(offer_link: Tag) -> list[str]:
-    values: list[str] = []
-    for div in offer_link.find_all("div"):
-        text = _normalize_text(div.get_text(" ", strip=True))
-        if text:
-            values.append(text)
-    return values
+    return [
+        text
+        for div in offer_link.find_all("div")
+        if (text := _normalize_text(div.get_text(" ", strip=True)))
+    ]
 
 
 def _clean_offer_text(value: str) -> str:
@@ -214,7 +212,7 @@ def _is_noise_offer(value: str) -> bool:
     lowered = value.lower()
     if len(lowered) < 6:
         return True
-    if any(lowered.startswith(prefix) for prefix in QUESTION_PREFIXES):
+    if lowered.startswith(QUESTION_PREFIXES):
         return True
     if any(phrase in lowered for phrase in NOISE_PHRASES):
         return True
