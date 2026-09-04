@@ -228,17 +228,20 @@ def _is_noise_offer(value: str) -> bool:
 class RetailMeNotExtractor(BaseDealExtractor):
     """DOM-aware extractor for retailmenot.com store pages."""
 
+    __slots__ = ()
+
     name = "retailmenot"
-    supported_domains = ["retailmenot.com", "www.retailmenot.com"]
+    supported_domains = ("retailmenot.com", "www.retailmenot.com")
 
     def extract(
         self, html: str, text: str, url: str
     ) -> list[DealCandidate]:
-        if not html.strip():
+        if not html or html.isspace():
             return []
 
         soup = BeautifulSoup(html, "lxml")
         store_hint = _extract_store_hint_from_html(soup)
+        store = store_hint or "UNKNOWN_STORE"
         offer_links = soup.select('a[data-component-class="offer_strip"]')
         candidates: list[DealCandidate] = []
 
@@ -278,7 +281,7 @@ class RetailMeNotExtractor(BaseDealExtractor):
             expiry, expiry_type = _extract_expiry(combined_metadata)
 
             candidate = DealCandidate(
-                store=store_hint or "UNKNOWN_STORE",
+                store=store,
                 offer=offer_text,
                 source=self.name,
                 raw_html=str(offer_link),
