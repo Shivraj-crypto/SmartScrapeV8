@@ -14,7 +14,6 @@ class BaseDealExtractor(ABC):
 
     name: str = ""
     supported_domains: tuple[str, ...] = ()
-    non_supported_domains: tuple[str, ...] = ()
 
     @classmethod
     def is_configured(cls) -> bool:
