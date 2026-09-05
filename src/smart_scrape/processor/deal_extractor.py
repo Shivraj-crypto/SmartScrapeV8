@@ -95,18 +95,21 @@ def _extract_store_hint_from_html(soup: BeautifulSoup) -> str | None:
     return store or None
 
 
-def _extract_offer_type(offer_link: Tag) -> str | None:
+def _extract_offer_type(
+    offer_link: Tag,
+    *,
+    offer_text: str | None = None,
+    badges: list[str] | None = None,
+) -> str | None:
     x_data = str(offer_link.get("x-data", ""))
     match = re.search(r"'offerType':\s*'([^']+)'", x_data)
     raw_offer_type = match.group(1) if match else None
 
-    badges = [badge.lower() for badge in _extract_offer_badges(offer_link)]
+    if badges is None:
+        badges = _extract_offer_badges(offer_link)
+    badges = [badge.lower() for badge in badges]
     cta_text = _normalize_text(offer_link.get_text(" ", strip=True)).lower()
-    title_node = offer_link.find("h3")
-    offer_text = (
-        _normalize_text(title_node.get_text(" ", strip=True)) if title_node else ""
-    )
-    offer_lower = offer_text.lower()
+    offer_lower = (offer_text or "").lower()
 
     if "free shipping" in offer_lower:
         return "SHIPPING"
@@ -253,16 +256,19 @@ class RetailMeNotExtractor(BaseDealExtractor):
             if not isinstance(offer_link, Tag):
                 continue
 
-            offer_type = _extract_offer_type(offer_link)
             title_node = offer_link.find("h3")
             if title_node is None:
                 continue
 
+            title_text = _normalize_text(title_node.get_text(" ", strip=True))
+            badges = _extract_offer_badges(offer_link)
+            offer_type = _extract_offer_type(
+                offer_link, offer_text=title_text, badges=badges,
+            )
             offer_text = _clean_offer_text(title_node.get_text(" ", strip=True))
             if not offer_text or _is_noise_offer(offer_text):
                 continue
 
-            badges = _extract_offer_badges(offer_link)
             metadata = _extract_offer_metadata(offer_link)
             combined_metadata = badges + metadata
 
