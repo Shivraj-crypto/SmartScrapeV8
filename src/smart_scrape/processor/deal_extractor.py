@@ -45,6 +45,17 @@ AMOUNT_OFF_MIN_SPEND_PATTERN = re.compile(
     r"[$]\d+(?:\.\d{1,2})?\s+off\s+[$](\d+(?:\.\d{1,2})?\+?)",
     re.IGNORECASE,
 )
+CLEAN_CTA_PATTERN = re.compile(
+    r"\b(show code|get deal|get reward|see details)\b", re.IGNORECASE,
+)
+CLEAN_INTERESTED_PATTERN = re.compile(
+    r"\b\d+\s+interested users?\b", re.IGNORECASE,
+)
+CLEAN_ADDED_BY_PATTERN = re.compile(
+    r"\badded by\s+[A-Za-z0-9._-]+\b", re.IGNORECASE,
+)
+CLEAN_VERIFIED_PATTERN = re.compile(r"\bverified\b", re.IGNORECASE)
+CLEAN_EXCLUSIVE_PATTERN = re.compile(r"\bexclusive\b", re.IGNORECASE)
 
 QUESTION_PREFIXES = (
     "how ", "what ", "are ", "does ", "do ", "can ", "is ", "why ", "when ",
@@ -144,18 +155,11 @@ def _extract_offer_metadata(offer_link: Tag) -> list[str]:
 
 def _clean_offer_text(value: str) -> str:
     cleaned = _normalize_text(value)
-    cleaned = re.sub(
-        r"\b(show code|get deal|get reward|see details)\b",
-        "", cleaned, flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        r"\b\d+\s+interested users?\b", "", cleaned, flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(
-        r"\badded by\s+[A-Za-z0-9._-]+\b", "", cleaned, flags=re.IGNORECASE,
-    )
-    cleaned = re.sub(r"\bverified\b", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\bexclusive\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = CLEAN_CTA_PATTERN.sub("", cleaned)
+    cleaned = CLEAN_INTERESTED_PATTERN.sub("", cleaned)
+    cleaned = CLEAN_ADDED_BY_PATTERN.sub("", cleaned)
+    cleaned = CLEAN_VERIFIED_PATTERN.sub("", cleaned)
+    cleaned = CLEAN_EXCLUSIVE_PATTERN.sub("", cleaned)
     cleaned = WHITESPACE_PATTERN.sub(" ", cleaned)
     return cleaned.strip(" |-")
 
@@ -265,7 +269,7 @@ class RetailMeNotExtractor(BaseDealExtractor):
             offer_type = _extract_offer_type(
                 offer_link, offer_text=title_text, badges=badges,
             )
-            offer_text = _clean_offer_text(title_node.get_text(" ", strip=True))
+            offer_text = _clean_offer_text(title_text)
             if not offer_text or _is_noise_offer(offer_text):
                 continue
 
